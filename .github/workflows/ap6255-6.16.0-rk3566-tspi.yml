@@ -155,7 +155,7 @@ jobs:
       - name: create armbian_headers
         run: |
           cd ${{ env.src_path }}/linux-headers-${{ env.kernel_main_version }}/
-          tar -zcf  headers-${{ env.kernel_main_version }}.tar.gz   *
+          tar -zcf  headers-${{ env.kernel_main_version }}.tar.gz --exclude=headers-${{ env.kernel_main_version }}.tar.gz .
           mv   headers-${{ env.kernel_main_version }}.tar.gz  ${{ env.armbian_path }}/
 
           
