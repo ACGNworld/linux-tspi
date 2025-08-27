@@ -6,7 +6,7 @@ on:
       target_tag:
         description: 'Source tag to build from'
         required: true
-        default: 'v6.16.0'
+        default: 'tspi_ap6255_v6.16.0'
         
 
 env:
