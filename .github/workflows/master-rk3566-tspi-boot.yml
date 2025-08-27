@@ -114,7 +114,7 @@ jobs:
 
       - name: tar ap6255_wifi_firmware
         run: |
-          cd ${{ env.src_path }}/firmware
+          cd ${{ env.src_path }}/tspi_wifi_firmware
           tar -zcf ap6255_wifi_firmware.tar.gz  *            
       
       - name: Build Kernel-headers
@@ -144,7 +144,7 @@ jobs:
           mv ${{ env.src_path }}/linux-headers-${{ env.kernel_main_version }}.tar.gz  .
           mv ${{ env.modules_path }}/${{ env.kernel_main_version }}-modules.tar.gz   .
           mv ${{ env.src_path }}/rk3566-lckfb-tspi-boot-${{ env.kernel_main_version }}.img  .
-          cp -a ${{ env.src_path }}/firmware/ap6255_wifi_firmware.tar.gz  .
+          cp -a ${{ env.src_path }}/tspi_wifi_firmware/ap6255_wifi_firmware.tar.gz  .
           tar -zcvf rk3566-tspi-${{ env.kernel_main_version }}.tar.gz   *
 
       #制作armbian_boot所需的modules、headers、boot-files、dtb
@@ -298,7 +298,7 @@ jobs:
       - name: Build  ap6255_armbian-6.16.0-boot
         run: |
           cd ${{ env.armbian_path }}/
-          mv ${{ env.src_path }}/firmware/ap6255_wifi_firmware.tar.gz  .
+          mv ${{ env.src_path }}/tspi_wifi_firmware/ap6255_wifi_firmware.tar.gz  .
           mv ${{ env.armbian_file_path }}/boot-${{ env.kernel_main_version }}.tar.gz   .
           echo "查看armbian_boot下所有需要打包的文件"
           ls -lh
