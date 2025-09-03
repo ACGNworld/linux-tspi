@@ -150,17 +150,19 @@ jobs:
             MODULES_DIR="modules_${chip}"
             make ARCH=${ARCH} CROSS_COMPILE=${TOOLCHAIN_PATH}/${CROSS_COMPILE} modules_install INSTALL_MOD_PATH=${MODULES_DIR}
             
-            # 合并内核和dtb
+            # 处理内核和dtb合并
             if [ "$ARCH" = "arm" ]; then
-              # ARM32位架构：合并zImage和dtb
+              # ARM32位架构：先合并zImage和dtb，然后转换为uImage
+              echo "Processing ARM32 architecture for $chip"
               cat arch/arm/boot/zImage arch/arm/boot/dts/${DTB_FILE} > kernel-dtb-${chip}
-              # 创建uImage
               mkimage -A arm -O linux -T kernel -C none -a 0x2000000 -e 0x2000000 -n "Linux-${{ env.kernel_main_version }}-${chip}" -d kernel-dtb-${chip} hi_kernel-${chip}_${{ env.kernel_main_version }}.bin
             else
-              # ARM64位架构：合并Image和dtb
-              cat arch/arm64/boot/Image arch/arm64/boot/dts/${DTB_FILE} > kernel-dtb-${chip}
-              # 创建uImage (ARM64)
-              mkimage -A arm64 -O linux -T kernel -C none -a 0x20080000 -e 0x20080000 -n "Linux-${{ env.kernel_main_version }}-${chip}" -d kernel-dtb-${chip} hi_kernel-${chip}_${{ env.kernel_main_version }}.bin
+              # ARM64位架构：先转换Image为uImage，然后与dtb合并
+              echo "Processing ARM64 architecture for $chip"
+              # 先将Image转换为uImage
+              mkimage -A arm64 -O linux -T kernel -C none -a 0x20080000 -e 0x20080000 -n "Linux-${{ env.kernel_main_version }}-${chip}" -d arch/arm64/boot/Image uImage-${chip}
+              # 然后将uImage与dtb合并
+              cat uImage-${chip} arch/arm64/boot/dts/${DTB_FILE} > hi_kernel-${chip}_${{ env.kernel_main_version }}.bin
             fi
             
             # 打包模块
@@ -172,10 +174,13 @@ jobs:
             mv hi_kernel-${chip}_${{ env.kernel_main_version }}.bin build_output/
             mv ${MODULES_DIR}/lib/modules/${{ env.kernel_main_version }}-${chip}-modules.tar.gz build_output/
             
+            # 清理临时文件
+            rm -f kernel-dtb-${chip} uImage-${chip}
+            
             echo "Completed building for $chip"
           done
           
-          # 构建内核头文件（使用最后一次构建的配置）
+          # 构建内核头文件
           echo "Building kernel headers..."
           mkdir linux-headers-${{ env.kernel_main_version }}
           cp -a Module.symvers linux-headers-${{ env.kernel_main_version }}/
@@ -218,7 +223,7 @@ jobs:
             - hi_kernel-*.bin: HiSilicon 3798 kernel images for different chip models
             - *-modules.tar.gz: Kernel modules for each chip model
             - linux-headers-*.tar.gz: Kernel headers
-          
+
             
           draft: false
           prerelease: false
