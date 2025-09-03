@@ -72,7 +72,10 @@ jobs:
             libncurses-dev \
             initramfs-tools \
             busybox-static \
-            libc6-dev-i386
+            libc6-dev-i386 \
+            build-essential \
+            kmod \
+            cpio
           sudo -E apt-get -y install $(curl -fsSL https://tinyurl.com/ubuntu2204-build-armbian)
 
       - name: Setup ARM Toolchains
@@ -107,7 +110,10 @@ jobs:
 
       - name: Get Kernel Version
         run: |
-          echo "kernel_main_version=$(make kernelversion)" >> $GITHUB_ENV
+          # 首先设置默认架构来获取内核版本
+          make ARCH=arm CROSS_COMPILE=${{ env.ARM_TOOLCHAIN_PATH }}/armeb-linux-gnueabi- kernelversion > kernel_version.txt
+          echo "kernel_main_version=$(cat kernel_version.txt)" >> $GITHUB_ENV
+          echo "Kernel version: ${{ env.kernel_main_version }}"
 
       - name: Build Kernel for selected models
         run: |
@@ -122,8 +128,8 @@ jobs:
             echo "Building for $chip"
             echo "=========================================="
             
-            DTB_FILE="hi${chip}.dtb"
-            DEFCONFIG="${chip}_defconfig"  # 修复defconfig文件名
+            DTB_FILE="${chip}.dtb"  # 修复DTB文件名
+            DEFCONFIG="${chip}_defconfig"
             
             # 设置架构和工具链
             if [ "$chip" = "hi3798mv100" ]; then
@@ -145,29 +151,31 @@ jobs:
             fi
             
             # 检查dtb文件是否存在
-            if [ ! -f "arch/${ARCH}/boot/dts/${DTB_FILE}" ]; then
-              echo "Warning: DTB file ${DTB_FILE} not found! Skipping $chip"
+            DTB_PATH="arch/${ARCH}/boot/dts/hisilicon/${DTB_FILE}"
+            if [ ! -f "${DTB_PATH}" ]; then
+              echo "Warning: DTB file ${DTB_FILE} not found at ${DTB_PATH}! Skipping $chip"
+              echo "Available DTB files in arch/${ARCH}/boot/dts/hisilicon/:"
+              ls arch/${ARCH}/boot/dts/hisilicon/ | grep -i ${chip} || true
               continue
             fi
             
-            # 清理之前的构建（如果是全部构建）
-            if [ "${{ env.BUILD_ALL }}" = "true" ] && [ "$chip" != "hi3798mv100" ]; then
-              make ARCH=${ARCH} CROSS_COMPILE=${TOOLCHAIN_PATH}/${CROSS_COMPILE} clean
-            fi
+            # 清理之前的构建
+            make ARCH=${ARCH} CROSS_COMPILE=${TOOLCHAIN_PATH}/${CROSS_COMPILE} clean
             
             # 构建内核
             make ARCH=${ARCH} CROSS_COMPILE=${TOOLCHAIN_PATH}/${CROSS_COMPILE} ${DEFCONFIG}
-            make ARCH=${ARCH} CROSS_COMPILE=${TOOLCHAIN_PATH}/${CROSS_COMPILE} dtbs Image zImage modules -j$(nproc)
+            make ARCH=${ARCH} CROSS_COMPILE=${TOOLCHAIN_PATH}/${CROSS_COMPILE} -j$(nproc)
             
             # 安装模块
             MODULES_DIR="modules_${chip}"
+            mkdir -p ${MODULES_DIR}
             make ARCH=${ARCH} CROSS_COMPILE=${TOOLCHAIN_PATH}/${CROSS_COMPILE} modules_install INSTALL_MOD_PATH=${MODULES_DIR}
             
             # 处理内核和dtb合并
             if [ "$ARCH" = "arm" ]; then
               # ARM32位架构：先合并zImage和dtb，然后转换为uImage
               echo "Processing ARM32 architecture for $chip"
-              cat arch/arm/boot/zImage arch/arm/boot/dts/${DTB_FILE} > kernel-dtb-${chip}
+              cat arch/arm/boot/zImage ${DTB_PATH} > kernel-dtb-${chip}
               mkimage -A arm -O linux -T kernel -C none -a 0x2000000 -e 0x2000000 -n "Linux-${{ env.kernel_main_version }}-${chip}" -d kernel-dtb-${chip} hi_kernel-${chip}_${{ env.kernel_main_version }}.bin
             else
               # ARM64位架构：先转换Image为uImage，然后与dtb合并
@@ -175,7 +183,7 @@ jobs:
               # 先将Image转换为uImage
               mkimage -A arm64 -O linux -T kernel -C none -a 0x20080000 -e 0x20080000 -n "Linux-${{ env.kernel_main_version }}-${chip}" -d arch/arm64/boot/Image uImage-${chip}
               # 然后将uImage与dtb合并
-              cat uImage-${chip} arch/arm64/boot/dts/${DTB_FILE} > hi_kernel-${chip}_${{ env.kernel_main_version }}.bin
+              cat uImage-${chip} ${DTB_PATH} > hi_kernel-${chip}_${{ env.kernel_main_version }}.bin
             fi
             
             # 打包模块
@@ -193,33 +201,31 @@ jobs:
             echo "Completed building for $chip"
           done
           
-          # 构建内核头文件（只有在至少一个芯片构建成功后才执行）
-          if [ -f "Module.symvers" ]; then
-            echo "Building kernel headers..."
-            mkdir linux-headers-${{ env.kernel_main_version }}
-            cp -a Module.symvers linux-headers-${{ env.kernel_main_version }}/
-            cp -a Makefile linux-headers-${{ env.kernel_main_version }}/
-            cp -a scripts linux-headers-${{ env.kernel_main_version }}/
-            
-            # 根据架构复制相应的头文件
-            if [ -d "arch/arm64" ]; then
-              mkdir -p linux-headers-${{ env.kernel_main_version }}/arch/arm64
-              cp -a arch/arm64/include linux-headers-${{ env.kernel_main_version }}/arch/arm64/include
-              cp -a arch/arm64/kvm linux-headers-${{ env.kernel_main_version }}/arch/arm64/kvm
-              cp -a arch/arm64/Makefile linux-headers-${{ env.kernel_main_version }}/arch/arm64/Makefile
-            fi
-            if [ -d "arch/arm" ]; then
-              mkdir -p linux-headers-${{ env.kernel_main_version }}/arch/arm
-              cp -a arch/arm/include linux-headers-${{ env.kernel_main_version }}/arch/arm/include
-              cp -a arch/arm/Makefile linux-headers-${{ env.kernel_main_version }}/arch/arm/Makefile
-            fi
-            
-            cp -a include linux-headers-${{ env.kernel_main_version }}/
-            cp -a .config linux-headers-${{ env.kernel_main_version }}/
-            tar -zcf build_output/linux-headers-${{ env.kernel_main_version }}.tar.gz linux-headers-${{ env.kernel_main_version }}
-          else
-            echo "Warning: Module.symvers not found, skipping kernel headers build"
+          # 构建内核头文件
+          echo "Building kernel headers..."
+          mkdir -p linux-headers-${{ env.kernel_main_version }}
+          
+          # 复制必要的文件
+          cp -a Module.symvers linux-headers-${{ env.kernel_main_version }}/
+          cp -a Makefile linux-headers-${{ env.kernel_main_version }}/
+          cp -a scripts linux-headers-${{ env.kernel_main_version }}/
+          cp -a include linux-headers-${{ env.kernel_main_version }}/
+          cp -a .config linux-headers-${{ env.kernel_main_version }}/
+          
+          # 复制架构相关文件
+          if [ -d "arch/arm64" ]; then
+            mkdir -p linux-headers-${{ env.kernel_main_version }}/arch/arm64
+            cp -a arch/arm64/include linux-headers-${{ env.kernel_main_version }}/arch/arm64/
+            cp -a arch/arm64/Makefile linux-headers-${{ env.kernel_main_version }}/arch/arm64/
           fi
+          
+          if [ -d "arch/arm" ]; then
+            mkdir -p linux-headers-${{ env.kernel_main_version }}/arch/arm
+            cp -a arch/arm/include linux-headers-${{ env.kernel_main_version }}/arch/arm/
+            cp -a arch/arm/Makefile linux-headers-${{ env.kernel_main_version }}/arch/arm/
+          fi
+          
+          tar -zcf build_output/linux-headers-${{ env.kernel_main_version }}.tar.gz linux-headers-${{ env.kernel_main_version }}
           
           # 显示构建结果
           echo "Build completed. Output files:"
