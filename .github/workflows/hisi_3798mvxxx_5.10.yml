@@ -48,7 +48,6 @@ jobs:
             echo "BUILD_ALL=false" >> $GITHUB_ENV
           fi
 
-
       - name: Install Latest LZ4
         run: |
           LZ4_LATEST=$(curl -s https://api.github.com/repos/lz4/lz4/releases/latest | grep 'tarball_url' | cut -d\" -f4)
@@ -78,7 +77,7 @@ jobs:
 
       - name: Setup ARM Toolchains
         run: |
-          # 下载armeb工具链 (用于mv100) - 使用可用的源
+          # 下载armeb工具链 (用于mv100)
           echo "Downloading ARM toolchain for hi3798mv100..."
           wget https://releases.linaro.org/components/toolchain/binaries/7.5-2019.12/armeb-linux-gnueabi/gcc-linaro-7.5.0-2019.12-x86_64_armeb-linux-gnueabi.tar.xz -O gcc-linaro-7.5.0-2019.12-x86_64_armeb-linux-gnueabi.tar.xz
           
@@ -105,7 +104,6 @@ jobs:
           # 添加到PATH
           echo "$(pwd)/gcc-linaro-7.5.0-2019.12-x86_64_armeb-linux-gnueabi/bin" >> $GITHUB_PATH
           echo "$(pwd)/gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu/bin" >> $GITHUB_PATH
-       
 
       - name: Get Kernel Version
         run: |
@@ -125,7 +123,7 @@ jobs:
             echo "=========================================="
             
             DTB_FILE="hi${chip}.dtb"
-            DEFCONFIG="hi${chip}_defconfig"
+            DEFCONFIG="${chip}_defconfig"  # 修复defconfig文件名
             
             # 设置架构和工具链
             if [ "$chip" = "hi3798mv100" ]; then
@@ -195,29 +193,33 @@ jobs:
             echo "Completed building for $chip"
           done
           
-          # 构建内核头文件
-          echo "Building kernel headers..."
-          mkdir linux-headers-${{ env.kernel_main_version }}
-          cp -a Module.symvers linux-headers-${{ env.kernel_main_version }}/
-          cp -a Makefile linux-headers-${{ env.kernel_main_version }}/
-          cp -a scripts linux-headers-${{ env.kernel_main_version }}/
-          
-          # 根据架构复制相应的头文件
-          if [ -d "arch/arm64" ]; then
-            mkdir -p linux-headers-${{ env.kernel_main_version }}/arch/arm64
-            cp -a arch/arm64/include linux-headers-${{ env.kernel_main_version }}/arch/arm64/include
-            cp -a arch/arm64/kvm linux-headers-${{ env.kernel_main_version }}/arch/arm64/kvm
-            cp -a arch/arm64/Makefile linux-headers-${{ env.kernel_main_version }}/arch/arm64/Makefile
+          # 构建内核头文件（只有在至少一个芯片构建成功后才执行）
+          if [ -f "Module.symvers" ]; then
+            echo "Building kernel headers..."
+            mkdir linux-headers-${{ env.kernel_main_version }}
+            cp -a Module.symvers linux-headers-${{ env.kernel_main_version }}/
+            cp -a Makefile linux-headers-${{ env.kernel_main_version }}/
+            cp -a scripts linux-headers-${{ env.kernel_main_version }}/
+            
+            # 根据架构复制相应的头文件
+            if [ -d "arch/arm64" ]; then
+              mkdir -p linux-headers-${{ env.kernel_main_version }}/arch/arm64
+              cp -a arch/arm64/include linux-headers-${{ env.kernel_main_version }}/arch/arm64/include
+              cp -a arch/arm64/kvm linux-headers-${{ env.kernel_main_version }}/arch/arm64/kvm
+              cp -a arch/arm64/Makefile linux-headers-${{ env.kernel_main_version }}/arch/arm64/Makefile
+            fi
+            if [ -d "arch/arm" ]; then
+              mkdir -p linux-headers-${{ env.kernel_main_version }}/arch/arm
+              cp -a arch/arm/include linux-headers-${{ env.kernel_main_version }}/arch/arm/include
+              cp -a arch/arm/Makefile linux-headers-${{ env.kernel_main_version }}/arch/arm/Makefile
+            fi
+            
+            cp -a include linux-headers-${{ env.kernel_main_version }}/
+            cp -a .config linux-headers-${{ env.kernel_main_version }}/
+            tar -zcf build_output/linux-headers-${{ env.kernel_main_version }}.tar.gz linux-headers-${{ env.kernel_main_version }}
+          else
+            echo "Warning: Module.symvers not found, skipping kernel headers build"
           fi
-          if [ -d "arch/arm" ]; then
-            mkdir -p linux-headers-${{ env.kernel_main_version }}/arch/arm
-            cp -a arch/arm/include linux-headers-${{ env.kernel_main_version }}/arch/arm/include
-            cp -a arch/arm/Makefile linux-headers-${{ env.kernel_main_version }}/arch/arm/Makefile
-          fi
-          
-          cp -a include linux-headers-${{ env.kernel_main_version }}/
-          cp -a .config linux-headers-${{ env.kernel_main_version }}/
-          tar -zcf build_output/linux-headers-${{ env.kernel_main_version }}.tar.gz linux-headers-${{ env.kernel_main_version }}
           
           # 显示构建结果
           echo "Build completed. Output files:"
@@ -238,8 +240,6 @@ jobs:
             - hi_kernel-*.bin: HiSilicon 3798 kernel images for different chip models
             - *-modules.tar.gz: Kernel modules for each chip model
             - linux-headers-*.tar.gz: Kernel headers
-
-            
           draft: false
           prerelease: false
           allowUpdates: true
