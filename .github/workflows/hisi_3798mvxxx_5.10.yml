@@ -78,19 +78,34 @@ jobs:
 
       - name: Setup ARM Toolchains
         run: |
-          # 下载armeb工具链 (用于mv100)
-          wget "https://publishing-ie-linaro-org.s3.amazonaws.com/releases/components/toolchain/binaries/7.5-2019.12/armeb-linux-gnueabi/gcc-linaro-7.5.0-2019.12-x86_64_armeb-linux-gnueabi.tar.xz?Signature=V4KUsrxRFOMomns3jD6uIoQ4WOI%3D&Expires=1756869366&AWSAccessKeyId=AKIAIELXV2RYNAHFUP7A" -O gcc-linaro-7.5.0-2019.12-x86_64_armeb-linux-gnueabi.tar.xz
+          # 下载armeb工具链 (用于mv100) - 使用可用的源
+          echo "Downloading ARM toolchain for hi3798mv100..."
+          wget https://releases.linaro.org/components/toolchain/binaries/7.5-2019.12/armeb-linux-gnueabi/gcc-linaro-7.5.0-2019.12-x86_64_armeb-linux-gnueabi.tar.xz -O gcc-linaro-7.5.0-2019.12-x86_64_armeb-linux-gnueabi.tar.xz
+          
+          if [ ! -f "gcc-linaro-7.5.0-2019.12-x86_64_armeb-linux-gnueabi.tar.xz" ]; then
+            echo "ARM toolchain download failed, trying alternative source..."
+            wget https://snapshots.linaro.org/components/toolchain/binaries/7.5-2019.12/armeb-linux-gnueabi/gcc-linaro-7.5.0-2019.12-x86_64_armeb-linux-gnueabi.tar.xz -O gcc-linaro-7.5.0-2019.12-x86_64_armeb-linux-gnueabi.tar.xz
+          fi
+          
           tar xf gcc-linaro-7.5.0-2019.12-x86_64_armeb-linux-gnueabi.tar.xz
           echo "ARM_TOOLCHAIN_PATH=$(pwd)/gcc-linaro-7.5.0-2019.12-x86_64_armeb-linux-gnueabi/bin" >> $GITHUB_ENV
           
           # 下载aarch64工具链 (用于mv200/mv300/mv310)
-          wget "https://publishing-ie-linaro-org.s3.amazonaws.com/releases/components/toolchain/binaries/7.5-2019.12/aarch64-linux-gnu/gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.tar.xz?Signature=uMn%2BUDufx1F8LTs6AYVQRth1GcU%3D&Expires=1756869491&AWSAccessKeyId=AKIAIELXV2RYNAHFUP7A" -O gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.tar.xz
+          echo "Downloading AARCH64 toolchain for hi3798mv200/mv300/mv310..."
+          wget https://releases.linaro.org/components/toolchain/binaries/7.5-2019.12/aarch64-linux-gnu/gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.tar.xz -O gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.tar.xz
+          
+          if [ ! -f "gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.tar.xz" ]; then
+            echo "AARCH64 toolchain download failed, trying alternative source..."
+            wget https://snapshots.linaro.org/components/toolchain/binaries/7.5-2019.12/aarch64-linux-gnu/gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.tar.xz -O gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.tar.xz
+          fi
+          
           tar xf gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu.tar.xz
           echo "AARCH64_TOOLCHAIN_PATH=$(pwd)/gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu/bin" >> $GITHUB_ENV
           
           # 添加到PATH
           echo "$(pwd)/gcc-linaro-7.5.0-2019.12-x86_64_armeb-linux-gnueabi/bin" >> $GITHUB_PATH
           echo "$(pwd)/gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu/bin" >> $GITHUB_PATH
+       
 
       - name: Get Kernel Version
         run: |
