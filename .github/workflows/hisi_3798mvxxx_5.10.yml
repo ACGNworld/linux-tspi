@@ -75,7 +75,11 @@ jobs:
             libc6-dev-i386 \
             build-essential \
             kmod \
-            cpio
+            cpio \
+            python3 \
+            python3-pip \
+            libelf-dev \
+            liblz4-tool
           sudo -E apt-get -y install $(curl -fsSL https://tinyurl.com/ubuntu2204-build-armbian)
 
       - name: Setup ARM Toolchains
@@ -108,6 +112,18 @@ jobs:
           echo "$(pwd)/gcc-linaro-7.5.0-2019.12-x86_64_armeb-linux-gnueabi/bin" >> $GITHUB_PATH
           echo "$(pwd)/gcc-linaro-7.5.0-2019.12-x86_64_aarch64-linux-gnu/bin" >> $GITHUB_PATH
 
+      - name: Debug Source Structure
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Source structure:"
+          ls -la
+          echo "Arch directories:"
+          ls -la arch/ || echo "No arch directory found"
+          echo "Config files:"
+          find . -name "*defconfig" | head -10 || echo "No defconfig files found"
+          echo "DTB files:"
+          find . -name "*.dts" -o -name "*.dtb" | head -10 || echo "No DTS/DTB files found"
+
       - name: Get Kernel Version
         run: |
           # 首先设置默认架构来获取内核版本
@@ -128,19 +144,24 @@ jobs:
             echo "Building for $chip"
             echo "=========================================="
             
-            DTB_FILE="${chip}.dtb"  # 修复DTB文件名
-            DEFCONFIG="${chip}_defconfig"
-            
             # 设置架构和工具链
             if [ "$chip" = "hi3798mv100" ]; then
               ARCH="arm"
               CROSS_COMPILE="armeb-linux-gnueabi-"
               TOOLCHAIN_PATH="${{ env.ARM_TOOLCHAIN_PATH }}"
+              DEFCONFIG="hi3798mv100_defconfig"
+              KERNEL_IMAGE="zImage"
+              KERNEL_PATH="arch/arm/boot/zImage"
+              DTB_SEARCH_PATH="arch/arm/boot/dts"
               echo "Using ARM (32-bit) toolchain for $chip"
             else
               ARCH="arm64"
               CROSS_COMPILE="aarch64-linux-gnu-"
               TOOLCHAIN_PATH="${{ env.AARCH64_TOOLCHAIN_PATH }}"
+              DEFCONFIG="${chip}_defconfig"
+              KERNEL_IMAGE="Image"
+              KERNEL_PATH="arch/arm64/boot/Image"
+              DTB_SEARCH_PATH="arch/arm64/boot/dts"
               echo "Using AARCH64 (64-bit) toolchain for $chip"
             fi
             
@@ -150,21 +171,43 @@ jobs:
               continue
             fi
             
-            # 检查dtb文件是否存在
-            DTB_PATH="arch/${ARCH}/boot/dts/hisilicon/${DTB_FILE}"
-            if [ ! -f "${DTB_PATH}" ]; then
-              echo "Warning: DTB file ${DTB_FILE} not found at ${DTB_PATH}! Skipping $chip"
-              echo "Available DTB files in arch/${ARCH}/boot/dts/hisilicon/:"
-              ls arch/${ARCH}/boot/dts/hisilicon/ | grep -i ${chip} || true
+            # 清理之前的构建
+            echo "Cleaning previous build..."
+            make ARCH=${ARCH} CROSS_COMPILE=${TOOLCHAIN_PATH}/${CROSS_COMPILE} clean
+            
+            # 设置配置
+            echo "Setting up defconfig..."
+            make ARCH=${ARCH} CROSS_COMPILE=${TOOLCHAIN_PATH}/${CROSS_COMPILE} ${DEFCONFIG}
+            
+            # 构建内核镜像和DTB
+            echo "Building kernel and DTB..."
+            make ARCH=${ARCH} CROSS_COMPILE=${TOOLCHAIN_PATH}/${CROSS_COMPILE} ${KERNEL_IMAGE} dtbs -j$(nproc)
+            
+            # 构建模块
+            echo "Building modules..."
+            make ARCH=${ARCH} CROSS_COMPILE=${TOOLCHAIN_PATH}/${CROSS_COMPILE} modules -j$(nproc)
+            
+            # 查找对应的DTB文件
+            DTB_PATH=$(find ${DTB_SEARCH_PATH} -name "*${chip}*.dtb" | head -1)
+            if [ -z "$DTB_PATH" ]; then
+              echo "Warning: No DTB file found for ${chip}! Searching in ${DTB_SEARCH_PATH}..."
+              find ${DTB_SEARCH_PATH} -name "*.dtb" | head -5
               continue
             fi
             
-            # 清理之前的构建
-            make ARCH=${ARCH} CROSS_COMPILE=${TOOLCHAIN_PATH}/${CROSS_COMPILE} clean
+            echo "Using DTB file: ${DTB_PATH}"
+            echo "Using kernel image: ${KERNEL_PATH}"
             
-            # 构建内核
-            make ARCH=${ARCH} CROSS_COMPILE=${TOOLCHAIN_PATH}/${CROSS_COMPILE} ${DEFCONFIG}
-            make ARCH=${ARCH} CROSS_COMPILE=${TOOLCHAIN_PATH}/${CROSS_COMPILE} -j$(nproc)
+            # 检查内核镜像和DTB文件是否存在
+            if [ ! -f "${KERNEL_PATH}" ]; then
+              echo "Error: Kernel image not found at ${KERNEL_PATH}"
+              continue
+            fi
+            
+            if [ ! -f "${DTB_PATH}" ]; then
+              echo "Error: DTB file not found at ${DTB_PATH}"
+              continue
+            fi
             
             # 安装模块
             MODULES_DIR="modules_${chip}"
@@ -173,63 +216,72 @@ jobs:
             
             # 处理内核和dtb合并
             if [ "$ARCH" = "arm" ]; then
-              # ARM32位架构：先合并zImage和dtb，然后转换为uImage
+              # ARM32位架构：合并zImage和dtb，然后转换为uImage
               echo "Processing ARM32 architecture for $chip"
-              cat arch/arm/boot/zImage ${DTB_PATH} > kernel-dtb-${chip}
+              cat ${KERNEL_PATH} ${DTB_PATH} > kernel-dtb-${chip}
               mkimage -A arm -O linux -T kernel -C none -a 0x2000000 -e 0x2000000 -n "Linux-${{ env.kernel_main_version }}-${chip}" -d kernel-dtb-${chip} hi_kernel-${chip}_${{ env.kernel_main_version }}.bin
             else
-              # ARM64位架构：先转换Image为uImage，然后与dtb合并
+              # ARM64位架构：转换Image为uImage，然后与dtb合并
               echo "Processing ARM64 architecture for $chip"
-              # 先将Image转换为uImage
-              mkimage -A arm64 -O linux -T kernel -C none -a 0x20080000 -e 0x20080000 -n "Linux-${{ env.kernel_main_version }}-${chip}" -d arch/arm64/boot/Image uImage-${chip}
-              # 然后将uImage与dtb合并
+              mkimage -A arm64 -O linux -T kernel -C none -a 0x20080000 -e 0x20080000 -n "Linux-${{ env.kernel_main_version }}-${chip}" -d ${KERNEL_PATH} uImage-${chip}
               cat uImage-${chip} ${DTB_PATH} > hi_kernel-${chip}_${{ env.kernel_main_version }}.bin
             fi
             
             # 打包模块
+            echo "Packaging modules..."
             cd ${MODULES_DIR}/lib/modules
-            tar -zcf ${{ env.kernel_main_version }}-${chip}-modules.tar.gz ${{ env.kernel_main_version }}
+            MODULE_VERSION_DIR=$(ls -d */ | head -1 | sed 's/\///')
+            tar -zcf ${MODULE_VERSION_DIR}-${chip}-modules.tar.gz ${MODULE_VERSION_DIR}
             cd ../../..
             
             # 移动文件到输出目录
             mv hi_kernel-${chip}_${{ env.kernel_main_version }}.bin build_output/
-            mv ${MODULES_DIR}/lib/modules/${{ env.kernel_main_version }}-${chip}-modules.tar.gz build_output/
+            mv ${MODULES_DIR}/lib/modules/${MODULE_VERSION_DIR}-${chip}-modules.tar.gz build_output/
             
             # 清理临时文件
             rm -f kernel-dtb-${chip} uImage-${chip}
             
             echo "Completed building for $chip"
           done
-          
-          # 构建内核头文件
-          echo "Building kernel headers..."
-          mkdir -p linux-headers-${{ env.kernel_main_version }}
-          
-          # 复制必要的文件
-          cp -a Module.symvers linux-headers-${{ env.kernel_main_version }}/
-          cp -a Makefile linux-headers-${{ env.kernel_main_version }}/
-          cp -a scripts linux-headers-${{ env.kernel_main_version }}/
-          cp -a include linux-headers-${{ env.kernel_main_version }}/
-          cp -a .config linux-headers-${{ env.kernel_main_version }}/
-          
-          # 复制架构相关文件
-          if [ -d "arch/arm64" ]; then
-            mkdir -p linux-headers-${{ env.kernel_main_version }}/arch/arm64
-            cp -a arch/arm64/include linux-headers-${{ env.kernel_main_version }}/arch/arm64/
-            cp -a arch/arm64/Makefile linux-headers-${{ env.kernel_main_version }}/arch/arm64/
+
+      - name: Build Kernel Headers
+        run: |
+          # 只在有构建输出的情况下构建头文件
+          if [ -n "$(ls -A build_output/*.bin 2>/dev/null)" ]; then
+            echo "Building kernel headers..."
+            mkdir -p linux-headers-${{ env.kernel_main_version }}
+            
+            # 复制必要的文件
+            [ -f "Module.symvers" ] && cp -a Module.symvers linux-headers-${{ env.kernel_main_version }}/
+            [ -f "Makefile" ] && cp -a Makefile linux-headers-${{ env.kernel_main_version }}/
+            [ -d "scripts" ] && cp -a scripts linux-headers-${{ env.kernel_main_version }}/
+            [ -d "include" ] && cp -a include linux-headers-${{ env.kernel_main_version }}/
+            [ -f ".config" ] && cp -a .config linux-headers-${{ env.kernel_main_version }}/
+            
+            # 复制架构相关文件
+            if [ -d "arch/arm64" ]; then
+              mkdir -p linux-headers-${{ env.kernel_main_version }}/arch/arm64
+              [ -d "arch/arm64/include" ] && cp -a arch/arm64/include linux-headers-${{ env.kernel_main_version }}/arch/arm64/
+              [ -f "arch/arm64/Makefile" ] && cp -a arch/arm64/Makefile linux-headers-${{ env.kernel_main_version }}/arch/arm64/
+            fi
+            
+            if [ -d "arch/arm" ]; then
+              mkdir -p linux-headers-${{ env.kernel_main_version }}/arch/arm
+              [ -d "arch/arm/include" ] && cp -a arch/arm/include linux-headers-${{ env.kernel_main_version }}/arch/arm/
+              [ -f "arch/arm/Makefile" ] && cp -a arch/arm/Makefile linux-headers-${{ env.kernel_main_version }}/arch/arm/
+            fi
+            
+            tar -zcf build_output/linux-headers-${{ env.kernel_main_version }}.tar.gz linux-headers-${{ env.kernel_main_version }}
+          else
+            echo "No kernel binaries built, skipping headers build"
           fi
-          
-          if [ -d "arch/arm" ]; then
-            mkdir -p linux-headers-${{ env.kernel_main_version }}/arch/arm
-            cp -a arch/arm/include linux-headers-${{ env.kernel_main_version }}/arch/arm/
-            cp -a arch/arm/Makefile linux-headers-${{ env.kernel_main_version }}/arch/arm/
-          fi
-          
-          tar -zcf build_output/linux-headers-${{ env.kernel_main_version }}.tar.gz linux-headers-${{ env.kernel_main_version }}
-          
-          # 显示构建结果
+
+      - name: Show Build Results
+        run: |
           echo "Build completed. Output files:"
-          ls -la build_output/
+          ls -la build_output/ || echo "No build output found"
+          echo "File sizes:"
+          du -sh build_output/* 2>/dev/null || true
 
       - name: Upload to Release
         uses: ncipollo/release-action@v1
