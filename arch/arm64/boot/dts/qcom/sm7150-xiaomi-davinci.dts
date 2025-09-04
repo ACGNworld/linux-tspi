@@ -38,10 +38,6 @@
 	model = "Xiaomi Mi 9T";
 	compatible = "xiaomi,davinci", "qcom,sm7150";
 
-	chosen {
-    		bootargs = "console=ttyMSM0,115200n8 earlycon=msm_serial_dm,0xa88000,115200n8";
-	};
-
 	qcom,board-id = <40 0>;
 
 	vreg_ibb: regulator-ibb {
@@ -50,6 +46,10 @@
 		regulator-min-microvolt = <6000000>;
 		regulator-max-microvolt = <6000000>;
 	};
+	chosen {
+    		bootargs = "console=ttyMSM0,115200n8 earlycon=msm_serial_dm,0xa88000,115200n8";
+	};
+
 
 	vreg_lab: regulator-lab {
 		compatible = "regulator-fixed";
@@ -585,3 +585,4 @@
     pinctrl-names = "default";
     pinctrl-0 = <&qup_uart8_default>;
 };
+
