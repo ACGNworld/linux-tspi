@@ -667,7 +667,7 @@
 };
 
 &sdhc_2 {
-	cd-gpios = <&tlmm 69 GPIO_ACTIVE_HIGH>;
+	cd-gpios = <&tlmm 69 GPIO_ACTIVE_LOW>;
 
 	vmmc-supply = <&vreg_l9c_3p1>;
 	vqmmc-supply = <&vreg_l6c_3p0>;
@@ -869,6 +869,9 @@
 	dr_mode = "otg";
 	usb-role-switch;
 	maximum-speed = "high-speed";
+	/* Remove USB3 phy */
+	phys = <&usb_1_hsphy>;
+	phy-names = "usb2-phy";
 };
 
 &usb_1_dwc3_hs {

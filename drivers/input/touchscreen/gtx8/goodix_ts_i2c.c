@@ -98,26 +98,22 @@ enum TS_SEND_CFG_REPLY {
 static int goodix_parse_dt_resolution(struct device_node *node,
 				      struct goodix_ts_board_data *board_data)
 {
-	int r, err;
+	int r;
 
 	r = of_property_read_u32(node, "goodix,panel-max-x",
 				 &board_data->panel_max_x);
 	if (r)
-		err = -ENOENT;
+		return -ENOENT;
 
 	r = of_property_read_u32(node, "goodix,panel-max-y",
 				 &board_data->panel_max_y);
 	if (r)
-		err = -ENOENT;
+		return -ENOENT;
 
 	r = of_property_read_u32(node, "goodix,panel-max-w",
 				 &board_data->panel_max_w);
 	if (r)
-		err = -ENOENT;
-
-	board_data->swap_axis = of_property_read_bool(node, "goodix,swap-axis");
-	board_data->x2x = of_property_read_bool(node, "goodix,x2x");
-	board_data->y2y = of_property_read_bool(node, "goodix,y2y");
+		return -ENOENT;
 
 	return 0;
 }
@@ -131,7 +127,6 @@ static int goodix_parse_dt_resolution(struct device_node *node,
 static int goodix_parse_dt(struct device_node *node,
 			   struct goodix_ts_board_data *board_data)
 {
-	struct property *prop;
 	const char *name_tmp;
 	int r;
 
@@ -219,29 +214,6 @@ static int goodix_parse_dt(struct device_node *node,
 		ts_err("Failed to parse resolutions:%d", r);
 		return r;
 	}
-
-	/* key map */
-	prop = of_find_property(node, "goodix,panel-key-map", NULL);
-	if (prop && prop->length) {
-		if (prop->length / sizeof(u32) > GOODIX_MAX_TP_KEY) {
-			ts_err("Size of panel-key-map is invalid");
-			return r;
-		}
-
-		board_data->panel_max_key = prop->length / sizeof(u32);
-		board_data->tp_key_num = prop->length / sizeof(u32);
-		r = of_property_read_u32_array(node, "goodix,panel-key-map",
-					       &board_data->panel_key_map[0],
-					       board_data->panel_max_key);
-		if (r) {
-			ts_err("failed get key map, %d", r);
-			return r;
-		}
-	}
-
-	ts_debug("***key:%d, %d, %d, %d", board_data->panel_key_map[0],
-		 board_data->panel_key_map[1], board_data->panel_key_map[2],
-		 board_data->panel_key_map[3]);
 
 	ts_debug("[DT]x:%d, y:%d, w:%d, p:%d", board_data->panel_max_x,
 		 board_data->panel_max_y, board_data->panel_max_w,
@@ -774,9 +746,6 @@ exit:
  */
 static int goodix_hw_reset(struct goodix_ts_device *dev)
 {
-	u8 data[2] = { 0x00 };
-	int r = 0;
-
 	ts_debug("HW reset");
 
 	gpio_direction_output(dev->board_data.reset_gpio, 0);
@@ -829,31 +798,11 @@ static int goodix_request_handler(struct goodix_ts_device *dev)
 	return r;
 }
 
-static void goodix_swap_coords(struct goodix_ts_device *dev,
-			       unsigned int *coor_x, unsigned int *coor_y)
-{
-	unsigned int temp;
-	struct goodix_ts_board_data *bdata = &dev->board_data;
-
-	if (bdata->swap_axis) {
-		temp = *coor_x;
-		*coor_x = *coor_y;
-		*coor_y = temp;
-	}
-	if (bdata->x2x)
-		*coor_x = bdata->panel_max_x - *coor_x;
-	if (bdata->y2y)
-		*coor_y = bdata->panel_max_y - *coor_y;
-}
-
-#define GOODIX_KEY_STATE 0x10
 static void goodix_parse_finger_nor(struct goodix_ts_device *dev,
 				    struct goodix_touch_data *touch_data,
 				    unsigned char *buf, int touch_num)
 {
 	unsigned int id = 0, x = 0, y = 0, w = 0;
-	static u8 pre_key_map;
-	u8 cur_key_map = 0;
 	static u32 pre_finger_map;
 	u32 cur_finger_map = 0;
 	u8 *coor_data;
@@ -869,7 +818,6 @@ static void goodix_parse_finger_nor(struct goodix_ts_device *dev,
 		x = le16_to_cpup((__be16 *)(coor_data + 1));
 		y = le16_to_cpup((__be16 *)(coor_data + 3));
 		w = coor_data[5];
-		goodix_swap_coords(dev, &x, &y);
 		touch_data->coords[id].status = TS_TOUCH;
 		touch_data->coords[id].x = x;
 		touch_data->coords[id].y = y;
@@ -887,26 +835,6 @@ static void goodix_parse_finger_nor(struct goodix_ts_device *dev,
 	}
 	pre_finger_map = cur_finger_map;
 	touch_data->touch_num = touch_num;
-
-	if (buf[1] & GOODIX_KEY_STATE) {
-		/* have key */
-		cur_key_map = buf[touch_num * BYTES_PER_COORD + 2] & 0x0F;
-		for (i = 0; i < GOODIX_MAX_TP_KEY; i++) {
-			if (cur_key_map & (1 << i)) {
-				touch_data->keys[i].status = TS_TOUCH;
-				touch_data->keys[i].code =
-					dev->board_data.panel_key_map[i];
-			}
-		}
-	}
-	/* process key release */
-	for (i = 0; i < GOODIX_MAX_TP_KEY; i++) {
-		if (cur_key_map & (1 << i) || !(pre_key_map & (1 << i)))
-			continue;
-		touch_data->keys[i].status = TS_RELEASE;
-		touch_data->keys[i].code = dev->board_data.panel_key_map[i];
-	}
-	pre_key_map = cur_key_map;
 }
 
 static void goodix_parse_finger_ys(struct goodix_ts_device *dev,
@@ -929,7 +857,6 @@ static void goodix_parse_finger_ys(struct goodix_ts_device *dev,
 		x = be16_to_cpup((__be16 *)(coor_data + 2));
 		y = be16_to_cpup((__be16 *)(coor_data + 4));
 		w = be16_to_cpup((__be16 *)(coor_data + 6));
-		goodix_swap_coords(dev, &x, &y);
 		touch_data->coords[id].status = TS_TOUCH;
 		touch_data->coords[id].x = x;
 		touch_data->coords[id].y = y;
@@ -949,63 +876,6 @@ static void goodix_parse_finger_ys(struct goodix_ts_device *dev,
 	touch_data->touch_num = touch_num;
 }
 
-static unsigned int goodix_pen_btn_code[] = { BTN_STYLUS, BTN_STYLUS2 };
-static void goodix_parse_pen_nor(struct goodix_ts_device *dev,
-				 struct goodix_pen_data *pen_data,
-				 unsigned char *buf, int touch_num)
-{
-	unsigned int id = 0;
-	static u8 pre_key_map;
-	u8 cur_key_map = 0;
-	static u32 pre_pen_status;
-	u32 cur_pen_status = 0;
-	u8 *coor_data;
-	int i;
-
-	coor_data = &buf[2];
-	for (i = 0; i < touch_num; i++) {
-		/* search for pen coordinate */
-		id = coor_data[0];
-		if (id < 0x80) {
-			coor_data += BYTES_PER_COORD;
-			continue;
-		}
-		pen_data->coords.x = le16_to_cpup((__be16 *)(coor_data + 1));
-		pen_data->coords.y = le16_to_cpup((__be16 *)(coor_data + 3));
-		pen_data->coords.p = le16_to_cpup((__be16 *)(coor_data + 5));
-		goodix_swap_coords(dev, &pen_data->coords.x,
-				   &pen_data->coords.y);
-		pen_data->coords.status = TS_TOUCH;
-		pen_data->coords.tool_type = BTN_TOOL_PEN;
-		cur_pen_status = 1;
-		/* currently only support one stylus */
-		break;
-	}
-	if (!cur_pen_status && pre_pen_status) {
-		pen_data->coords.status = TS_RELEASE;
-	}
-	pre_pen_status = cur_pen_status;
-
-	/* process pen button */
-	if (buf[1] & GOODIX_KEY_STATE) {
-		cur_key_map = (buf[touch_num * BYTES_PER_COORD + 2] >> 4) &
-			      0x0F;
-		for (i = 0; i < GOODIX_MAX_PEN_KEY; i++) {
-			if (!(cur_key_map & (1 << i)))
-				continue;
-			pen_data->keys[i].status = TS_TOUCH;
-			pen_data->keys[i].code = goodix_pen_btn_code[i];
-		}
-	}
-	for (i = 0; i < GOODIX_MAX_PEN_KEY; i++) {
-		if (cur_key_map & (1 << i) || !(pre_key_map & (1 << i)))
-			continue;
-		pen_data->keys[i].status = TS_RELEASE;
-		pen_data->keys[i].code = goodix_pen_btn_code[i];
-	}
-	pre_key_map = cur_key_map;
-}
-
 static int goodix_touch_handler_ys(struct goodix_ts_device *dev,
 				   struct goodix_ts_event *ts_event,
 				   u8 *pre_buf, u32 pre_buf_len)
@@ -1018,7 +888,6 @@ static int goodix_touch_handler_ys(struct goodix_ts_device *dev,
 	u16 chksum = 0;
 
 	static u8 pre_finger_num = 0;
-	static u8 pre_pen_num = 0;
 
 	/* clean event buffer */
 	memset(ts_event, 0, sizeof(*ts_event));
@@ -1028,15 +897,15 @@ static int goodix_touch_handler_ys(struct goodix_ts_device *dev,
 	touch_num = buffer[2] & 0x0F;
 
 	if (unlikely(touch_num > GOODIX_MAX_TOUCH)) {
-		touch_num = -EINVAL;
-		goto exit_clean_sta;
+		return r;
 	}
+
 	if (unlikely(touch_num > 1)) {
 		r = goodix_i2c_read_trans(dev, dev->reg.coor + pre_buf_len,
 					  &buffer[pre_buf_len],
 					  (touch_num - 1) * BYTES_PER_COORD);
 		if (unlikely(r < 0))
-			goto exit_clean_sta;
+			return r;
 	}
 
 	if (touch_num > 0) {
@@ -1044,43 +913,19 @@ static int goodix_touch_handler_ys(struct goodix_ts_device *dev,
 					touch_num * BYTES_PER_COORD + 2);
 		if (unlikely(chksum != 0)) {
 			ts_debug("checksum error:%x", chksum);
-			r = -EINVAL;
-			goto exit_clean_sta;
+			return -EINVAL;
 		}
-	}
-	if (touch_num > 0)
+
 		point_type = buffer[(touch_num - 1) * BYTES_PER_COORD +
 				    IRQ_HEAD_LEN_YS] &
 			     0x0F;
-	if (touch_num >= 1 && (point_type == POINT_TYPE_STYLUS ||
-			       point_type == POINT_TYPE_STYLUS_HOVER)) {
-		/* stylus info */
-		if (pre_finger_num) {
-			ts_event->event_type = EVENT_TOUCH;
-			goodix_parse_finger_ys(dev, touch_data, buffer, 0);
-			pre_finger_num = 0;
-		} else {
-			pre_pen_num = 1;
-			ts_event->event_type = EVENT_PEN;
-		}
-	} else {
-		/* finger info */
-		if (pre_pen_num) {
-			ts_event->event_type = EVENT_PEN;
-			pre_pen_num = 0;
-		} else {
-			ts_event->event_type = EVENT_TOUCH;
-			goodix_parse_finger_ys(dev, touch_data, buffer,
-					       touch_num);
-			pre_finger_num = touch_num;
-		}
+
+		ts_event->event_type = EVENT_TOUCH;
+		goodix_parse_finger_ys(dev, touch_data, buffer,
+				       touch_num);
+		pre_finger_num = touch_num;
 	}
 
-	/* process custom info */
-	if (buffer[3] & 0x01) {
-		ts_debug("TODO add custom info process function");
-	}
-exit_clean_sta:
 	return r;
 }
 
@@ -1089,14 +934,12 @@ static int goodix_touch_handler_nor(struct goodix_ts_device *dev,
 				    u8 *pre_buf, u32 pre_buf_len)
 {
 	struct goodix_touch_data *touch_data = &ts_event->touch_data;
-	struct goodix_pen_data *pen_data = &ts_event->pen_data;
 	static u8 buffer[IRQ_HEAD_LEN_NOR + BYTES_PER_COORD * GOODIX_MAX_TOUCH +
 			 2];
 	int touch_num = 0, r = -EINVAL;
 	unsigned char chksum = 0;
 
 	static u8 pre_finger_num = 0;
-	static u8 pre_pen_num = 0;
 
 	/* clean event buffer */
 	memset(ts_event, 0, sizeof(*ts_event));
@@ -1106,48 +949,35 @@ static int goodix_touch_handler_nor(struct goodix_ts_device *dev,
 	touch_num = buffer[1] & 0x0F;
 
 	if (unlikely(touch_num > GOODIX_MAX_TOUCH)) {
-		touch_num = -EINVAL;
-		goto exit_clean_sta;
+		return r;
 	}
+
 	if (unlikely(touch_num > 1)) {
 		r = goodix_i2c_read_trans(dev, dev->reg.coor + pre_buf_len,
 					  &buffer[pre_buf_len],
 					  (touch_num - 1) * BYTES_PER_COORD);
 		if (unlikely(r < 0))
-			goto exit_clean_sta;
+			return r;
 	}
 
 	chksum = checksum_u8(&buffer[0], touch_num * BYTES_PER_COORD + 4);
 	if (unlikely(chksum != 0)) {
 		ts_debug("checksum error:%X, ic_type:%d", chksum, dev->ic_type);
-		r = -EINVAL;
-		goto exit_clean_sta;
+		return -EINVAL;
 	}
 
 	if (touch_num >= 1 &&
 	    buffer[(touch_num - 1) * BYTES_PER_COORD + 2] >= 0x80) {
-		if (pre_finger_num) {
-			ts_event->event_type = EVENT_TOUCH;
-			goodix_parse_finger_nor(dev, touch_data, buffer, 0);
-			pre_finger_num = 0;
-		} else {
-			pre_pen_num = 1;
-			ts_event->event_type = EVENT_PEN;
-			goodix_parse_pen_nor(dev, pen_data, buffer, touch_num);
-		}
+		ts_event->event_type = EVENT_TOUCH;
+		goodix_parse_finger_nor(dev, touch_data, buffer, 0);
+		pre_finger_num = 0;
 	} else {
-		if (pre_pen_num) {
-			ts_event->event_type = EVENT_PEN;
-			goodix_parse_pen_nor(dev, pen_data, buffer, 0);
-			pre_pen_num = 0;
-		} else {
-			ts_event->event_type = EVENT_TOUCH;
-			goodix_parse_finger_nor(dev, touch_data, buffer,
-						touch_num);
-			pre_finger_num = touch_num;
-		}
+		ts_event->event_type = EVENT_TOUCH;
+		goodix_parse_finger_nor(dev, touch_data, buffer,
+					touch_num);
+		pre_finger_num = touch_num;
 	}
-exit_clean_sta:
+
 	return r;
 }
 

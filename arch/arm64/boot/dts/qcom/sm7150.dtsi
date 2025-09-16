@@ -5,6 +5,7 @@
  * Copyright (c) 2025, Jens Reidel <adrian@mainlining.org>
  */
 
+#include <dt-bindings/clock/qcom,dsi-phy-28nm.h>
 #include <dt-bindings/clock/qcom,gpucc-sc7180.h>
 #include <dt-bindings/clock/qcom,rpmh.h>
 #include <dt-bindings/clock/qcom,sm7150-camcc.h>
@@ -16,6 +17,7 @@
 #include <dt-bindings/interconnect/qcom,osm-l3.h>
 #include <dt-bindings/interconnect/qcom,sm7150-rpmh.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/phy/phy-qcom-qmp.h>
 #include <dt-bindings/power/qcom-rpmpd.h>
 #include <dt-bindings/power/qcom,rpmhpd.h>
 #include <dt-bindings/soc/qcom,rpmh-rsc.h>
@@ -3018,6 +3020,11 @@
 			#power-domain-cells = <1>;
 		};
 
+		rng@793000 {
+			compatible = "qcom,sm7150-trng", "qcom,trng";
+			reg = <0x0 0x00793000 0x0 0x1000>;
+		};
+
 		sdhc_1: mmc@7c4000 {
 			compatible = "qcom,sm7150-sdhci",
 				     "qcom,sdhci-msm-v5";
@@ -3161,6 +3168,51 @@
 			#phy-cells = <0>;
 
 			status = "disabled";
+		};
+
+		usb_1_qmpphy: phy@88e8000 {
+			compatible = "qcom,sm7150-qmp-usb3-dp-phy";
+			reg = <0 0x088e8000 0 0x3000>;
+
+			clocks = <&gcc GCC_USB3_PRIM_PHY_AUX_CLK>,
+				 <&gcc GCC_USB3_PRIM_CLKREF_CLK>,
+				 <&gcc GCC_USB3_PRIM_PHY_COM_AUX_CLK>,
+				 <&gcc GCC_USB3_PRIM_PHY_PIPE_CLK>,
+				 <&gcc GCC_USB_PHY_CFG_AHB2PHY_CLK>;
+			clock-names = "aux",
+				      "ref",
+				      "com_aux",
+				      "usb3_pipe",
+				      "cfg_ahb";
+
+			resets = <&gcc GCC_USB3_DP_PHY_PRIM_BCR>,
+				 <&gcc GCC_USB3_PHY_PRIM_BCR>;
+			reset-names = "phy", "common";
+
+			#clock-cells = <1>;
+			#phy-cells = <1>;
+
+			status = "disabled";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+
+					usb_1_qmpphy_out: endpoint {
+					};
+				};
+
+				port@1 {
+					reg = <1>;
+
+					usb_1_qmpphy_usb_ss_in: endpoint {
+						remote-endpoint = <&usb_1_dwc3_ss>;
+					};
+				};
+			};
 		};
 
 		pmu@90b6300 {
@@ -3355,8 +3407,9 @@
 
 				iommus = <&apps_smmu 0x540 0>;
 
-				phys = <&usb_1_hsphy>;
-				phy-names = "usb2-phy";
+				phys = <&usb_1_hsphy>, <&usb_1_qmpphy QMP_USB43DP_USB3_PHY>;
+				phy-names = "usb2-phy", "usb3-phy";
+				maximum-speed = "super-speed";
 
 				snps,dis_u2_susphy_quirk;
 				snps,dis_enblslpm_quirk;
@@ -3378,7 +3431,9 @@
 					port@1 {
 						reg = <1>;
 
-						usb_1_dwc3_ss: endpoint { };
+						usb_1_dwc3_ss: endpoint {
+							remote-endpoint = <&usb_1_qmpphy_usb_ss_in>;
+						};
 					};
 				};
 			};
@@ -3875,8 +3930,8 @@
 
 				assigned-clocks = <&dispcc DISPCC_MDSS_BYTE0_CLK_SRC>,
 						  <&dispcc DISPCC_MDSS_PCLK0_CLK_SRC>;
-				assigned-clock-parents = <&mdss_dsi0_phy 0>,
-							 <&mdss_dsi0_phy 1>;
+				assigned-clock-parents = <&mdss_dsi0_phy DSI_BYTE_PLL_CLK>,
+							 <&mdss_dsi0_phy DSI_PIXEL_PLL_CLK>;
 
 				operating-points-v2 = <&mdss_dsi_opp_table>;
 
@@ -3952,8 +4007,8 @@
 
 				assigned-clocks = <&dispcc DISPCC_MDSS_BYTE1_CLK_SRC>,
 						  <&dispcc DISPCC_MDSS_PCLK1_CLK_SRC>;
-				assigned-clock-parents = <&mdss_dsi1_phy 0>,
-							 <&mdss_dsi1_phy 1>;
+				assigned-clock-parents = <&mdss_dsi1_phy DSI_BYTE_PLL_CLK>,
+							 <&mdss_dsi1_phy DSI_PIXEL_PLL_CLK>;
 
 				operating-points-v2 = <&mdss_dsi_opp_table>;
 
@@ -4009,7 +4064,7 @@
 
 		dispcc: clock-controller@af00000 {
 			compatible = "qcom,sm7150-dispcc";
-			reg = <0x0 0x0af00000 0x0 0x200000>;
+			reg = <0x0 0x0af00000 0x0 0x20000>;
 
 			clocks = <&rpmhcc RPMH_CXO_CLK>,
 				 <&rpmhcc RPMH_CXO_CLK_A>,

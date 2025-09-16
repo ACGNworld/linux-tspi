@@ -44,31 +44,6 @@ void goodix_ts_dev_release(void);
 #define CORE_MODULE_REMOVED -2
 int core_module_prob_sate = CORE_MODULE_UNPROBED;
 
-/* event notifier */
-static BLOCKING_NOTIFIER_HEAD(ts_notifier_list);
-/**
- * goodix_ts_register_client - register a client notifier
- * @nb: notifier block to callback on events
- *  see enum ts_notify_event in goodix_ts_core.h
- */
-static int goodix_ts_register_notifier(struct notifier_block *nb)
-{
-	return blocking_notifier_chain_register(&ts_notifier_list, nb);
-}
-
-/**
- * fb_notifier_call_chain - notify clients of fb_events
- *	see enum ts_notify_event in goodix_ts_core.h
- */
-static int goodix_ts_blocking_notify(enum ts_notify_event evt, void *v)
-{
-	int ret;
-
-	ret = blocking_notifier_call_chain(&ts_notifier_list,
-					   (unsigned long)evt, v);
-	return ret;
-}
-
 static void goodix_ts_report_finger(struct input_dev *dev,
 				    struct goodix_touch_data *touch_data)
 {
@@ -103,15 +78,6 @@ static void goodix_ts_report_finger(struct input_dev *dev,
 				 touch_data->coords[i].w);
 	}
 
-	/* report panel key */
-	for (i = 0; i < GOODIX_MAX_TP_KEY; i++) {
-		if (!touch_data->keys[i].status)
-			continue;
-		if (touch_data->keys[i].status == TS_TOUCH)
-			input_report_key(dev, touch_data->keys[i].code, 1);
-		else if (touch_data->keys[i].status == TS_RELEASE)
-			input_report_key(dev, touch_data->keys[i].code, 0);
-	}
 	input_sync(dev);
 }
 
@@ -420,21 +386,12 @@ static void goodix_ts_set_input_params(struct input_dev *input_dev,
 {
 	unsigned int i;
 
-	if (ts_bdata->swap_axis)
-		swap(ts_bdata->panel_max_x, ts_bdata->panel_max_y);
-
 	input_set_abs_params(input_dev, ABS_MT_POSITION_X, 0,
 			     ts_bdata->panel_max_x, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_POSITION_Y, 0,
 			     ts_bdata->panel_max_y, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_TOUCH_MAJOR, 0,
 			     ts_bdata->panel_max_w, 0, 0);
-
-	if (ts_bdata->panel_max_key) {
-		for (i = 0; i < ts_bdata->panel_max_key; i++)
-			input_set_capability(input_dev, EV_KEY,
-					     ts_bdata->panel_key_map[i]);
-	}
 }
 
 /**
@@ -535,12 +492,6 @@ static int goodix_ts_suspend(struct goodix_ts_core *core_data)
 
 	ts_debug("Suspend start");
 
-	/*
-	 * notify suspend event, inform the esd protector
-	 * and charger detector to turn off the work
-	 */
-	goodix_ts_blocking_notify(NOTIFY_SUSPEND, NULL);
-
 	/* disable irq */
 	goodix_ts_irq_enable(core_data, false);
 
@@ -589,13 +540,6 @@ static int goodix_ts_resume(struct goodix_ts_core *core_data)
 		ts_dev->hw_ops->resume(ts_dev);
 
 	goodix_ts_irq_enable(core_data, true);
-
-	/*
-	 * notify resume event, inform the esd protector
-	 * and charger detector to turn on the work
-	 */
-	ts_debug("try notify resume");
-	goodix_ts_blocking_notify(NOTIFY_RESUME, NULL);
 	ts_debug("Resume end");
 	return 0;
 }

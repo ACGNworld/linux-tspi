@@ -37,7 +37,6 @@
 #include <linux/vmalloc.h>
 #include <linux/version.h>
 
-#define GOODIX_FLASH_CONFIG_WITH_ISP 1
 /* macros definition */
 #define GOODIX_CORE_DRIVER_NAME "goodix_ts"
 #define GOODIX_PEN_DRIVER_NAME "goodix_ts,pen"
@@ -45,7 +44,6 @@
 #define GOODIX_BUS_RETRY_TIMES 3
 #define GOODIX_MAX_TOUCH 10
 #define GOODIX_CFG_MAX_SIZE 4096
-#define GOODIX_ESD_TICK_WRITE_DATA 0xAA
 #define GOODIX_PID_MAX_LEN 8
 #define GOODIX_VID_MAX_LEN 8
 
@@ -71,9 +69,6 @@
  * @power_off_delay_us: power off delay time (us)
  * @swap_axis: whether swaw x y axis
  * @panel_max_x/y/w/p: resolution and size
- * @panel_max_key: max supported keys
- * @pannel_key_map: key map
- * @fw_name: name of the firmware image
  */
 struct goodix_ts_board_data {
 	char avdd_name[24];
@@ -87,20 +82,10 @@ struct goodix_ts_board_data {
 	unsigned int power_on_delay_us;
 	unsigned int power_off_delay_us;
 
-	unsigned int swap_axis;
 	unsigned int panel_max_x;
 	unsigned int panel_max_y;
 	unsigned int panel_max_w; /*major and minor*/
 	unsigned int panel_max_p; /*pressure*/
-	unsigned int panel_max_key;
-	unsigned int panel_key_map[GOODIX_MAX_TP_KEY];
-	unsigned int x2x;
-	unsigned int y2y;
-	unsigned int tp_key_num;
-	/*add end*/
-
-	const char *fw_name;
-	const char *cfg_bin_name;
 };
 
 /*
@@ -127,14 +112,6 @@ enum ts_event_type {
 	EVENT_REQUEST = (1 << 2),
 };
 
-/* notifier event */
-enum ts_notify_event {
-	NOTIFY_SUSPEND,
-	NOTIFY_RESUME,
-	NOTIFY_ESD_OFF,
-	NOTIFY_ESD_ON,
-};
-
 enum touch_point_status {
 	TS_NONE,
 	TS_RELEASE,
@@ -146,29 +123,10 @@ struct goodix_ts_coords {
 	unsigned int x, y, w, p;
 };
 
-struct goodix_pen_coords {
-	int status; /* NONE, RELEASE, TOUCH */
-	int tool_type; /* BTN_TOOL_RUBBER BTN_TOOL_PEN */
-	unsigned int x, y, p;
-	signed char tilt_x;
-	signed char tilt_y;
-};
-
-struct goodix_ts_key {
-	int status;
-	int code;
-};
-
 /* touch event data */
 struct goodix_touch_data {
 	int touch_num;
 	struct goodix_ts_coords coords[GOODIX_MAX_TOUCH];
-	struct goodix_ts_key keys[GOODIX_MAX_TP_KEY];
-};
-
-struct goodix_pen_data {
-	struct goodix_pen_coords coords;
-	struct goodix_ts_key keys[GOODIX_MAX_PEN_KEY];
 };
 
 /*
@@ -180,7 +138,6 @@ struct goodix_pen_data {
 struct goodix_ts_event {
 	enum ts_event_type event_type;
 	struct goodix_touch_data touch_data;
-	struct goodix_pen_data pen_data;
 };
 
 /*
@@ -335,7 +292,6 @@ struct goodix_ts_core {
 	struct platform_device *pdev;
 	struct goodix_ts_device *ts_dev;
 	struct input_dev *input_dev;
-	struct input_dev *pen_dev;
 
 	struct regulator *avdd;
 #ifdef CONFIG_PINCTRL

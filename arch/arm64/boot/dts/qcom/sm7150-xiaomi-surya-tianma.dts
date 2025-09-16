@@ -13,7 +13,7 @@
 	 * Xiaomi POCO X3 NFC (surya)
 	 */
 	model = "Xiaomi POCO X3 NFC (Tianma)";
-	compatible = "xiaomi,surya-tianma", "qcom,sm7150";
+	compatible = "xiaomi,surya-tianma", "xiaomi,surya", "qcom,sm7150";
 };
 
 &nt36xxx {
