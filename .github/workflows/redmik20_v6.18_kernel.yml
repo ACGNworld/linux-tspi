@@ -1,4 +1,4 @@
-name: Build redmik20_v6.17_kernel
+name: Build redmik20_v6.18_kernel
 
 on:
   workflow_dispatch:
