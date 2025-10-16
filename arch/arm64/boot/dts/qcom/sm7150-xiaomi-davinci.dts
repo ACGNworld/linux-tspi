@@ -334,7 +334,8 @@
 };
 
 &panel {
-	compatible = "samsung,ams639rq08"; // or visionox,g1639fp106
+//	compatible = "samsung,ams639rq08"; // or visionox,g1639fp106
+	compatible = "visionox,rm69299"; // or visionox,g1639fp106
 
 	vsn-supply = <&vreg_ibb>;
 	vsp-supply = <&vreg_lab>;
