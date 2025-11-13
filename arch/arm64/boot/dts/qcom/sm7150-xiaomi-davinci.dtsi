@@ -31,18 +31,11 @@
 };
 
 / {
-	/*
-	 * Xiaomi Mi 9T
-	 * Xiaomi Redmi K20
-	 */
-	model = "Xiaomi Mi 9T";
-	compatible = "xiaomi,davinci", "qcom,sm7150";
-
 	qcom,board-id = <40 0>;
 
-	chosen {
-    		bootargs = "console=ttyMSM0,115200n8 earlycon=msm_serial_dm,0xa88000,115200n8";
-	};
+        chosen {
+                bootargs = "console=ttyMSM0,115200n8 earlycon=msm_serial_dm,0xa88000,115200n8";
+        };
 
 	vreg_ibb: regulator-ibb {
 		compatible = "regulator-fixed";
@@ -168,8 +161,6 @@
 				clock-lanes = <0>;
 				data-lanes = <1 2>;
 				bus-type = <MEDIA_BUS_TYPE_CSI2_DPHY>;
-				link-frequencies = /bits/ 64
-					<720000000 360000000>;
 				remote-endpoint = <&ov8856_ep>;
 			};
 		};
@@ -334,9 +325,6 @@
 };
 
 &panel {
-//	compatible = "samsung,ams639rq08"; // or visionox,g1639fp106
-	compatible = "visionox,g1639fp106"; // or samsung,ams639rq08
-
 	vsn-supply = <&vreg_ibb>;
 	vsp-supply = <&vreg_lab>;
 };
