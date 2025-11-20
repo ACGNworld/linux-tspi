@@ -299,7 +299,7 @@ jobs:
       - name: Upload Kernel to Release
         uses: ncipollo/release-action@v1
         with:
-          tag: ${{ github.event.inputs.source_branch }}-build-${{ github.run_number }}
+          tag: ${{ github.event.inputs.source_branch }}-build-${{ env.kernel_main_version }}
           name: "redmik20_sm7150 Kernel Build from ${{ github.event.inputs.source_branch }}"
           artifacts: |
             ${{ env.boot_img_file }}/redmik20_sm7150_${{ env.kernel_main_version }}_boot.img
